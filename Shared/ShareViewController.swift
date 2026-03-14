@@ -8,15 +8,16 @@
 import UIKit
 import UniformTypeIdentifiers
 
+@objc(ShareViewController)
 class ShareViewController: UIViewController {
     
     // MARK: - Lifecycle
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Скрываем view, так как UI не нужен
+        // Полностью прозрачный view без UI
+        view.backgroundColor = .clear
         view.isHidden = true
-        view.alpha = 0
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -33,39 +34,55 @@ class ShareViewController: UIViewController {
             return
         }
         
-        Task {
-            await processInputItems(inputItems)
-        }
+        processInputItems(inputItems)
     }
     
-    private func processInputItems(_ inputItems: [NSExtensionItem]) async {
+    private func processInputItems(_ inputItems: [NSExtensionItem]) {
+        let group = DispatchGroup()
+        var foundURL: URL?
+        
         for item in inputItems {
             guard let attachments = item.attachments else { continue }
             
             for provider in attachments {
                 // Проверяем URL
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                    if let url = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL {
-                        if isYouTubeURL(url) {
-                            openMainApp(with: url)
-                            return
+                    group.enter()
+                    provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, error in
+                        defer { group.leave() }
+                        
+                        if let url = item as? URL, self?.isYouTubeURL(url) == true {
+                            foundURL = url
+                        } else if let urlData = item as? Data,
+                                  let url = URL(dataRepresentation: urlData, relativeTo: nil),
+                                  self?.isYouTubeURL(url) == true {
+                            foundURL = url
                         }
                     }
                 }
                 
                 // Проверяем текст (иногда ссылки приходят как текст)
                 if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                    if let text = try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? String,
-                       let url = extractYouTubeURL(from: text) {
-                        openMainApp(with: url)
-                        return
+                    group.enter()
+                    provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] item, error in
+                        defer { group.leave() }
+                        
+                        if let text = item as? String,
+                           let url = self?.extractYouTubeURL(from: text) {
+                            foundURL = url
+                        }
                     }
                 }
             }
         }
         
-        // Если YouTube ссылка не найдена
-        completeRequest()
+        group.notify(queue: .main) { [weak self] in
+            if let url = foundURL {
+                self?.openMainApp(with: url)
+            } else {
+                self?.completeRequest()
+            }
+        }
     }
     
     // MARK: - YouTube URL Validation
@@ -131,34 +148,25 @@ class ShareViewController: UIViewController {
     
     // MARK: - Open URL (для iOS 17+)
     
-    @discardableResult
-    private func openURL(_ url: URL) -> Bool {
-        var responder: UIResponder? = self
+    private func openURL(_ url: URL) {
+        // Используем openURL через UIApplication.shared через responder chain
+        // Это единственный рабочий способ в Share Extension
         
-        while responder != nil {
-            if let application = responder as? UIApplication {
-                application.open(url, options: [:], completionHandler: nil)
-                completeRequest()
-                return true
-            }
-            responder = responder?.next
-        }
-        
-        // Альтернативный способ через selector
-        let selector = sel_registerName("openURL:")
-        responder = self
+        var responder: UIResponder? = self as UIResponder
+        let selector = NSSelectorFromString("openURL:")
         
         while responder != nil {
             if responder!.responds(to: selector) {
-                responder!.perform(selector, with: url)
-                completeRequest()
-                return true
+                _ = responder!.perform(selector, with: url)
+                break
             }
             responder = responder?.next
         }
         
-        completeRequest()
-        return false
+        // Небольшая задержка перед закрытием extension
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.completeRequest()
+        }
     }
     
     // MARK: - Complete Request
