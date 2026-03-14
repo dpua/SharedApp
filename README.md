@@ -5,7 +5,8 @@ SwiftUI iOS 17+ приложение с Share Extension для быстрого 
 ## Функциональность
 
 - **Share Extension без UI** - мгновенно передает YouTube ссылку в основное приложение
-- **URL Scheme** - `linkshareapp://share?url=<encoded_youtube_url>`
+- **App Groups** - надежная передача данных между Extension и основным приложением
+- **URL Scheme** - `linkshareapp://share` (открывает приложение)
 - **Поддержка форматов YouTube**:
   - `youtube.com/watch?v=...`
   - `youtu.be/...`
@@ -18,13 +19,15 @@ SwiftUI iOS 17+ приложение с Share Extension для быстрого 
 ```
 LinkShareApp/
 ├── LinkShareApp/
-│   ├── LinkShareAppApp.swift    # Точка входа, обработка URL Scheme
-│   ├── ContentView.swift        # Главный UI с историей ссылок
-│   ├── Info.plist               # URL Scheme конфигурация
+│   ├── LinkShareAppApp.swift        # Точка входа, обработка URL Scheme + App Groups
+│   ├── ContentView.swift            # Главный UI с историей ссылок
+│   ├── Info.plist                   # URL Scheme конфигурация
+│   ├── LinkShareApp.entitlements    # App Groups entitlements
 │   └── Assets.xcassets/
 ├── Shared/
-│   ├── ShareViewController.swift # Share Extension (без UI)
-│   └── Info.plist                # Extension конфигурация
+│   ├── ShareViewController.swift    # Share Extension (без UI)
+│   ├── Info.plist                   # Extension конфигурация
+│   └── Shared.entitlements          # App Groups entitlements
 └── LinkShareApp.xcodeproj/
 ```
 
@@ -35,7 +38,21 @@ LinkShareApp/
 open LinkShareApp.xcodeproj
 ```
 
-### 2. Настройка основного приложения (LinkShareApp target)
+### 2. Настройка App Groups (ОБЯЗАТЕЛЬНО!)
+
+**Для основного приложения (LinkShareApp target):**
+1. Выберите target **LinkShareApp**
+2. Перейдите на вкладку **Signing & Capabilities**
+3. Нажмите **+ Capability** > **App Groups**
+4. Добавьте группу: `group.com.share.LinkShareApp`
+
+**Для Share Extension (Shared target):**
+1. Выберите target **Shared**
+2. Перейдите на вкладку **Signing & Capabilities**
+3. Нажмите **+ Capability** > **App Groups**
+4. Добавьте ту же группу: `group.com.share.LinkShareApp`
+
+### 3. Настройка основного приложения (LinkShareApp target)
 
 1. Выберите target **LinkShareApp**
 2. Перейдите на вкладку **Info**
@@ -46,30 +63,22 @@ open LinkShareApp.xcodeproj
 
 4. Перейдите на вкладку **Build Settings**
 5. Найдите **Info.plist File** и установите: `LinkShareApp/Info.plist`
+6. Найдите **Code Signing Entitlements** и установите: `LinkShareApp/LinkShareApp.entitlements`
 
-### 3. Настройка Share Extension (Shared target)
+### 4. Настройка Share Extension (Shared target)
 
 1. Выберите target **Shared**
 2. Перейдите на вкладку **Build Settings**
 3. Найдите **Info.plist File** и установите: `Shared/Info.plist`
-4. Убедитесь что **PRODUCT_BUNDLE_IDENTIFIER** = `com.share.LinkShareApp.Shared`
+4. Найдите **Code Signing Entitlements** и установите: `Shared/Shared.entitlements`
+5. Убедитесь что **PRODUCT_BUNDLE_IDENTIFIER** = `com.share.LinkShareApp.Shared`
 
-### 4. Удаление ссылки на Storyboard (ВАЖНО!)
+### 5. Удаление ссылки на Storyboard (ВАЖНО!)
 
 1. Выберите target **Shared**
 2. Перейдите в **Build Phases** > **Copy Bundle Resources**
 3. Удалите `MainInterface.storyboard` если он там есть
 4. В **Build Settings** найдите все упоминания `MainInterface` и удалите их
-
-### 5. App Groups (опционально, для передачи данных)
-
-Если нужно сохранять данные между Extension и App:
-
-1. Выберите target **LinkShareApp**
-2. Перейдите на вкладку **Signing & Capabilities**
-3. Нажмите **+ Capability** > **App Groups**
-4. Добавьте группу: `group.com.share.LinkShareApp`
-5. Повторите для target **Shared**
 
 ### 6. Bundle Identifier
 
@@ -87,12 +96,25 @@ open LinkShareApp.xcodeproj
                               │                         │
                               │ 1. Получает URL         │
                               │ 2. Проверяет YouTube    │
-                              │ 3. Открывает через      │
+                              │ 3. Сохраняет в App      │
+                              │    Group UserDefaults   │
+                              │ 4. Открывает через      │
                               │    URL Scheme           │
                               │                         │
+                              │         App Group       │
+                              │    (Shared UserDefaults)│
+                              │                         │
                               └─────────────────────────┘
-                                linkshareapp://share?url=...
+                                linkshareapp://share
 ```
+
+### Механизм передачи данных:
+
+1. **Share Extension** получает YouTube URL
+2. Сохраняет URL в `UserDefaults(suiteName: "group.com.share.LinkShareApp")`
+3. Открывает основное приложение через URL Scheme `linkshareapp://share`
+4. **Основное приложение** читает URL из shared UserDefaults
+5. Очищает UserDefaults после использования
 
 ## Тестирование
 

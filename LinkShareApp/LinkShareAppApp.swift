@@ -11,26 +11,58 @@ import SwiftUI
 struct LinkShareAppApp: App {
     @State private var sharedURL: URL?
     
+    /// App Group identifier - должен совпадать в Share Extension
+    private let appGroupID = "group.com.share.LinkShareApp"
+    private let sharedURLKey = "SharedYouTubeURL"
+    private let sharedTimestampKey = "SharedURLTimestamp"
+    
     var body: some Scene {
         WindowGroup {
             ContentView(sharedURL: $sharedURL)
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
+                .onAppear {
+                    // Проверяем App Group при запуске
+                    checkAppGroupForSharedURL()
+                }
         }
     }
     
     private func handleIncomingURL(_ url: URL) {
-        // Парсим URL Scheme: linkshareapp://share?url=...
+        // Приложение открыто через URL Scheme - читаем URL из App Group
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
-              components.host == "share",
-              let queryItems = components.queryItems,
-              let urlParam = queryItems.first(where: { $0.name == "url" })?.value,
-              let decodedURLString = urlParam.removingPercentEncoding,
-              let youtubeURL = URL(string: decodedURLString) else {
+              components.host == "share" else {
             return
         }
         
-        sharedURL = youtubeURL
+        // Читаем URL из shared UserDefaults
+        checkAppGroupForSharedURL()
+    }
+    
+    private func checkAppGroupForSharedURL() {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            return
+        }
+        
+        // Получаем сохраненный URL
+        guard let urlString = userDefaults.string(forKey: sharedURLKey),
+              let youtubeURL = URL(string: urlString) else {
+            return
+        }
+        
+        // Проверяем timestamp - URL не должен быть старше 60 секунд
+        let timestamp = userDefaults.double(forKey: sharedTimestampKey)
+        let now = Date().timeIntervalSince1970
+        
+        if now - timestamp < 60 {
+            // URL свежий - используем его
+            sharedURL = youtubeURL
+            
+            // Очищаем после использования
+            userDefaults.removeObject(forKey: sharedURLKey)
+            userDefaults.removeObject(forKey: sharedTimestampKey)
+            userDefaults.synchronize()
+        }
     }
 }

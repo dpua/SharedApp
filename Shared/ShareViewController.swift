@@ -11,6 +11,13 @@ import UniformTypeIdentifiers
 @objc(ShareViewController)
 class ShareViewController: UIViewController {
     
+    // MARK: - Constants
+    
+    /// App Group identifier - должен совпадать в основном приложении и extension
+    private let appGroupID = "group.com.share.LinkShareApp"
+    private let sharedURLKey = "SharedYouTubeURL"
+    private let sharedTimestampKey = "SharedURLTimestamp"
+    
     // MARK: - Lifecycle
     
     override func viewDidLoad() {
@@ -128,22 +135,33 @@ class ShareViewController: UIViewController {
     // MARK: - Open Main App
     
     private func openMainApp(with youtubeURL: URL) {
-        // Кодируем YouTube URL для передачи через URL Scheme
-        guard let encodedURL = youtubeURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            completeRequest()
-            return
-        }
+        // 1. Сохраняем URL в shared UserDefaults через App Group
+        saveURLToAppGroup(youtubeURL)
         
-        // Формируем URL Scheme для открытия основного приложения
-        let urlScheme = "linkshareapp://share?url=\(encodedURL)"
+        // 2. Формируем URL Scheme для открытия основного приложения
+        // Передаем URL и через URL Scheme, и через App Group (двойная гарантия)
+        let urlScheme = "linkshareapp://share"
         
         guard let appURL = URL(string: urlScheme) else {
             completeRequest()
             return
         }
         
-        // Открываем основное приложение
+        // 3. Открываем основное приложение
         openURL(appURL)
+    }
+    
+    // MARK: - App Group Storage
+    
+    private func saveURLToAppGroup(_ url: URL) {
+        guard let userDefaults = UserDefaults(suiteName: appGroupID) else {
+            return
+        }
+        
+        // Сохраняем URL и timestamp
+        userDefaults.set(url.absoluteString, forKey: sharedURLKey)
+        userDefaults.set(Date().timeIntervalSince1970, forKey: sharedTimestampKey)
+        userDefaults.synchronize()
     }
     
     // MARK: - Open URL (для iOS 17/18+)
