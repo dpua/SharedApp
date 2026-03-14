@@ -149,23 +149,44 @@ class ShareViewController: UIViewController {
     // MARK: - Open URL (для iOS 17+)
     
     private func openURL(_ url: URL) {
-        // Используем openURL через UIApplication.shared через responder chain
-        // Это единственный рабочий способ в Share Extension
+        // В iOS 17+ нужно использовать open(_:options:completionHandler:)
+        // Share Extension не имеет доступа к UIApplication.shared напрямую
+        // Используем workaround через NSExtensionContext
         
-        var responder: UIResponder? = self as UIResponder
-        let selector = NSSelectorFromString("openURL:")
+        // Способ 1: Через URL и completeRequest с openURL
+        let selectorOpenURL = sel_registerName("openURL:options:completionHandler:")
+        var responder: UIResponder? = self
         
         while responder != nil {
-            if responder!.responds(to: selector) {
-                _ = responder!.perform(selector, with: url)
-                break
+            if responder!.responds(to: selectorOpenURL) {
+                let implementation = responder!.method(for: selectorOpenURL)
+                typealias OpenURLFunction = @convention(c) (AnyObject, Selector, URL, [UIApplication.OpenExternalURLOptionsKey: Any], ((Bool) -> Void)?) -> Void
+                let function = unsafeBitCast(implementation, to: OpenURLFunction.self)
+                function(responder!, selectorOpenURL, url, [:]) { [weak self] success in
+                    DispatchQueue.main.async {
+                        self?.completeRequest()
+                    }
+                }
+                return
             }
             responder = responder?.next
         }
         
-        // Небольшая задержка перед закрытием extension
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.completeRequest()
+        // Способ 2: Fallback через NSExtensionContext.open (iOS 17+)
+        if #available(iOS 17.0, *) {
+            Task {
+                do {
+                    try await self.extensionContext?.open(url)
+                } catch {
+                    // Ошибка открытия URL
+                }
+                await MainActor.run {
+                    self.completeRequest()
+                }
+            }
+        } else {
+            // Для более старых версий iOS
+            completeRequest()
         }
     }
     
