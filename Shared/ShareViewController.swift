@@ -146,44 +146,28 @@ class ShareViewController: UIViewController {
         openURL(appURL)
     }
     
-    // MARK: - Open URL (для iOS 17+)
+    // MARK: - Open URL (для iOS 17/18+)
     
-    private func openURL(_ url: URL) {
-        // Share Extension не имеет прямого доступа к UIApplication.shared
-        // Используем NSExtensionContext.open для iOS 17+
-        
-        guard let extensionContext = extensionContext else {
-            completeRequest()
-            return
-        }
-        
-        // iOS 17+ поддерживает открытие URL через NSExtensionContext
-        if #available(iOS 17.0, *) {
-            Task { @MainActor in
-                await extensionContext.open(url)
-                self.completeRequest()
-            }
-        } else {
-            // Для iOS < 17 используем workaround через responder chain
-            openURLLegacy(url)
-        }
-    }
-    
-    private func openURLLegacy(_ url: URL) {
+    @objc @discardableResult
+    private func openURL(_ url: URL) -> Bool {
         var responder: UIResponder? = self
-        let selector = NSSelectorFromString("openURL:")
         
-        while let r = responder {
-            if r.responds(to: selector) {
-                r.perform(selector, with: url)
-                break
+        while responder != nil {
+            if let application = responder as? UIApplication {
+                // iOS 18+ требует использования open(_:options:completionHandler:)
+                application.open(url, options: [:]) { [weak self] success in
+                    DispatchQueue.main.async {
+                        self?.completeRequest()
+                    }
+                }
+                return true
             }
-            responder = r.next
+            responder = responder?.next
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.completeRequest()
-        }
+        // Fallback: если UIApplication не найден, закрываем extension
+        completeRequest()
+        return false
     }
     
     // MARK: - Complete Request
