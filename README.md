@@ -1,0 +1,2 @@
+# SharedApp
+SwiftUi ios17+
